@@ -1,25 +1,29 @@
-"""Instagram リール → 英語の文字起こし → 日本語訳 を返す Web アプリ。"""
+"""Instagram リール → 英語の文字起こし → 日本語訳 を返す Web アプリ。
 
-import json
+APIキー不要・無料。文字起こしも翻訳もこの Mac の中で動くモデルで行う。
+"""
+
 import os
 import re
 import tempfile
+import threading
 from functools import lru_cache
 from pathlib import Path
 
-import anthropic
 import yt_dlp
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
+from mlx_lm import generate, load
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).parent
 load_dotenv(BASE_DIR / ".env")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+# Apple Silicon 向けの無料ローカル翻訳モデル（初回のみ約2.3GBダウンロード）
+LLM_MODEL = os.getenv("LLM_MODEL", "mlx-community/Qwen3-4B-Instruct-2507-4bit")
 # 例: "chrome" / "safari"。ログインが必要なリールを取得するときに使う
 COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
 
@@ -27,6 +31,9 @@ INSTAGRAM_URL = re.compile(r"^https?://(www\.)?instagram\.com/(reel|reels|p|tv)/
 
 app = FastAPI(title="Reel Translator")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+# モデルは同時に1リクエストずつしか扱えないためロックする
+model_lock = threading.Lock()
 
 
 @app.exception_handler(Exception)
@@ -45,54 +52,9 @@ def get_whisper() -> WhisperModel:
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
 
 
-ENV_PATH = BASE_DIR / ".env"
-
-
-def key_configured() -> bool:
-    # サーバー起動後に .env を作成・編集しても反映されるよう毎回読み直す
-    load_dotenv(ENV_PATH, override=True)
-    key = os.getenv("ANTHROPIC_API_KEY", "")
-    return key.startswith("sk-ant-") and "xxxx" not in key
-
-
-def get_claude() -> anthropic.Anthropic:
-    if not key_configured():
-        raise HTTPException(400, "Claude の APIキーが設定されていません。画面上の「APIキー設定」から登録してください。")
-    return anthropic.Anthropic()
-
-
-def save_key_to_env(key: str) -> None:
-    lines = ENV_PATH.read_text().splitlines() if ENV_PATH.exists() else []
-    lines = [l for l in lines if not l.startswith("ANTHROPIC_API_KEY=")]
-    lines.insert(0, f"ANTHROPIC_API_KEY={key}")
-    ENV_PATH.write_text("\n".join(lines) + "\n")
-    ENV_PATH.chmod(0o600)  # 自分以外は読めないようにする
-    os.environ["ANTHROPIC_API_KEY"] = key
-
-
-class KeyRequest(BaseModel):
-    key: str
-
-
-@app.get("/api/key")
-def key_status():
-    return {"configured": key_configured()}
-
-
-@app.post("/api/key")
-def set_key(req: KeyRequest):
-    key = req.key.strip()
-    if not key.startswith("sk-ant-"):
-        raise HTTPException(400, "APIキーは「sk-ant-」で始まる文字列です。コピーし直してください。")
-    # 保存前に本当に使えるキーか確認する
-    try:
-        anthropic.Anthropic(api_key=key).models.list(limit=1)
-    except anthropic.AuthenticationError:
-        raise HTTPException(400, "この APIキーは無効です。Anthropic Console でキーを確認してください。")
-    except anthropic.APIConnectionError:
-        raise HTTPException(502, "Anthropic に接続できませんでした。ネット接続を確認してください。")
-    save_key_to_env(key)
-    return {"configured": True}
+@lru_cache(maxsize=1)
+def get_llm():
+    return load(LLM_MODEL)
 
 
 def download_audio(url: str, workdir: str) -> tuple[Path, dict]:
@@ -116,46 +78,37 @@ def transcribe(path: Path) -> str:
     return " ".join(s.text.strip() for s in segments).strip()
 
 
-TRANSLATION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary_ja": {"type": "string", "description": "内容の要約（日本語、3〜5文）"},
-        "translation_ja": {"type": "string", "description": "発話内容の自然な日本語訳（全文）"},
-        "caption_ja": {"type": "string", "description": "投稿キャプションの日本語訳（無ければ空文字）"},
-    },
-    "required": ["summary_ja", "translation_ja", "caption_ja"],
-    "additionalProperties": False,
-}
-
 SYSTEM_PROMPT = (
     "あなたは英語の SNS 動画を日本語で紹介するプロの翻訳者です。"
     "文字起こしは音声認識によるもので誤認識を含む場合があります。文脈から自然に補って訳してください。"
-    "スラングや固有名詞は意味が伝わるように訳し、必要なら括弧で原語を添えてください。"
+    "スラングや固有名詞は意味が伝わるように訳してください。"
 )
 
 
-def translate(client: anthropic.Anthropic, transcript: str, caption: str) -> dict:
-    user_content = (
-        f"<transcript>\n{transcript or '(発話なし)'}\n</transcript>\n\n"
-        f"<caption>\n{caption or '(なし)'}\n</caption>\n\n"
-        "上記の Instagram リールの文字起こしと投稿キャプションを日本語に翻訳し、要約も作成してください。"
-    )
-    response = client.beta.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=16000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-        output_config={
-            "effort": "medium",
-            "format": {"type": "json_schema", "schema": TRANSLATION_SCHEMA},
-        },
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-    )
-    if response.stop_reason == "refusal":
-        raise HTTPException(422, "この動画の内容は翻訳できませんでした。")
-    text = next((b.text for b in response.content if b.type == "text"), "")
-    return json.loads(text)
+def ask_llm(instruction: str, text: str) -> str:
+    model, tokenizer = get_llm()
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"{instruction}\n\n{text}"},
+    ]
+    prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    return generate(model, tokenizer, prompt=prompt, max_tokens=2048).strip()
+
+
+def translate(transcript: str, caption: str) -> dict:
+    with model_lock:
+        translation = summary = caption_ja = ""
+        if transcript:
+            translation = ask_llm("次の英語を自然な日本語に全文翻訳してください。訳文だけを出力してください。", transcript)
+            summary = ask_llm(
+                "次の動画の内容を日本語で3〜5文に要約してください。要約だけを出力してください。",
+                f"{transcript}\n\n(投稿キャプション: {caption})" if caption else transcript,
+            )
+        elif caption:
+            summary = "（動画内で話されている言葉は検出されませんでした）"
+        if caption:
+            caption_ja = ask_llm("次の Instagram 投稿キャプションを自然な日本語に翻訳してください。訳文だけを出力してください。", caption)
+    return {"translation_ja": translation, "summary_ja": summary, "caption_ja": caption_ja}
 
 
 @app.get("/")
@@ -168,8 +121,6 @@ def translate_reel(req: TranslateRequest):
     url = req.url.strip()
     if not INSTAGRAM_URL.match(url):
         raise HTTPException(400, "Instagram のリール URL を入力してください。")
-    # 時間のかかるダウンロード・文字起こしの前に APIキーを確認する
-    client = get_claude()
 
     with tempfile.TemporaryDirectory() as workdir:
         try:
@@ -184,21 +135,10 @@ def translate_reel(req: TranslateRequest):
         transcript = transcribe(path)
 
     caption = info.get("description") or ""
-    try:
-        result = translate(client, transcript, caption)
-    except anthropic.AuthenticationError:
-        raise HTTPException(500, "Claude API キーが無効です。.env の ANTHROPIC_API_KEY を確認してください。")
-    except anthropic.RateLimitError:
-        raise HTTPException(429, "API の利用上限に達しました。しばらくしてから再度お試しください。")
-    except anthropic.APIStatusError as e:
-        raise HTTPException(502, f"翻訳 API でエラーが発生しました: {e.message}")
-    except anthropic.APIConnectionError:
-        raise HTTPException(502, "翻訳 API に接続できませんでした。")
-
     return {
         "title": info.get("title") or "",
         "uploader": info.get("uploader") or info.get("channel") or "",
         "transcript_en": transcript,
         "caption_en": caption,
-        **result,
+        **translate(transcript, caption),
     }
