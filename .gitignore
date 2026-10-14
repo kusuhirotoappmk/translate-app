@@ -1,0 +1,25 @@
+# 秘密情報（APIキーなど）
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+cookies*.txt
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 一時ファイル・ダウンロードした動画/音声
+*.mp4
+*.m4a
+*.webm
+*.mp3
+tmp/
+
+# OS / エディタ
+.DS_Store
+.idea/
+.vscode/

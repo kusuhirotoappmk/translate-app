@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>リール翻訳</title>
+<style>
+  :root { --bg:#f7f7f9; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --accent:#d6249f; --border:#e3e3e8; --err:#c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111114; --card:#1c1c20; --text:#f2f2f5; --muted:#a1a1a8; --border:#2e2e34; --err:#ff6b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; line-height:1.7; }
+  main { max-width:720px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:1.6rem; margin:0 0 4px; }
+  .lead { color:var(--muted); margin:0 0 24px; font-size:.95rem; }
+  form { display:flex; gap:8px; flex-wrap:wrap; }
+  input { flex:1 1 320px; padding:12px 14px; font-size:1rem; border:1px solid var(--border); border-radius:10px; background:var(--card); color:var(--text); }
+  button { padding:12px 20px; font-size:1rem; border:0; border-radius:10px; color:#fff; cursor:pointer;
+           background:linear-gradient(45deg,#f09433,#dc2743,#bc1888); }
+  button:disabled { opacity:.5; cursor:wait; }
+  .status { margin:20px 0; color:var(--muted); }
+  .error { color:var(--err); white-space:pre-wrap; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px 20px; margin-top:16px; }
+  .card h2 { font-size:1rem; margin:0 0 8px; color:var(--accent); }
+  .card p { margin:0; white-space:pre-wrap; }
+  details summary { cursor:pointer; color:var(--muted); }
+  .copy { float:right; padding:4px 10px; font-size:.8rem; background:var(--border); color:var(--text); }
+  .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-2px; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>リール翻訳</h1>
+  <p class="lead">Instagram のリール URL を貼ると、英語の内容を日本語のテキストにします。</p>
+
+  <form id="form">
+    <input id="url" type="url" required placeholder="https://www.instagram.com/reel/..." autocomplete="off">
+    <button id="btn" type="submit">翻訳する</button>
+  </form>
+
+  <div id="status" class="status" hidden></div>
+  <div id="result" hidden>
+    <div class="card"><h2>要約</h2><p id="summary"></p></div>
+    <div class="card"><button class="copy" data-target="translation">コピー</button><h2>日本語訳</h2><p id="translation"></p></div>
+    <div class="card" id="captionCard"><h2>キャプションの訳</h2><p id="caption"></p></div>
+    <div class="card"><details><summary>英語の文字起こし（原文）</summary><p id="transcript"></p></details></div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("btn").disabled = true;
+  $("result").hidden = true;
+  $("status").hidden = false;
+  $("status").className = "status";
+  $("status").innerHTML = '<span class="spinner"></span>動画を取得して文字起こし・翻訳しています（30秒〜1分ほどかかります）…';
+  try {
+    const res = await fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: $("url").value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "エラーが発生しました。");
+    $("summary").textContent = data.summary_ja;
+    $("translation").textContent = data.translation_ja || "（発話が検出されませんでした）";
+    $("caption").textContent = data.caption_ja;
+    $("captionCard").hidden = !data.caption_ja;
+    $("transcript").textContent = data.transcript_en || "（なし）";
+    $("status").hidden = true;
+    $("result").hidden = false;
+  } catch (err) {
+    $("status").className = "status error";
+    $("status").textContent = err.message;
+  } finally {
+    $("btn").disabled = false;
+  }
+});
+
+document.querySelectorAll(".copy").forEach((b) =>
+  b.addEventListener("click", async () => {
+    await navigator.clipboard.writeText($(b.dataset.target).textContent);
+    b.textContent = "コピーしました";
+    setTimeout(() => (b.textContent = "コピー"), 1500);
+  })
+);
+</script>
+</body>
+</html>
