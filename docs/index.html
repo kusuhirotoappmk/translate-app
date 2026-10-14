@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>リール翻訳 | Instagram リールを日本語に</title>
+<meta name="description" content="Instagram の英語リールの URL を貼るだけで、要約・全文訳を日本語で表示する Web アプリ。APIキー不要、AI はすべてローカルで動作。">
+<style>
+  :root {
+    --bg:#fafafa; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --border:#e5e5ea;
+    --accent:#d6249f; --ok:#1f9d55; --off:#8e8e93;
+    --grad:linear-gradient(45deg,#f09433,#dc2743,#bc1888);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f0f12; --card:#1a1a1f; --text:#f2f2f5; --muted:#a1a1a8; --border:#2c2c33; --ok:#4ade80; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.75;
+         font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  .wrap { max-width:880px; margin:0 auto; padding:0 16px; }
+  header { padding:72px 0 40px; text-align:center; }
+  .logo { width:64px; height:64px; border-radius:18px; background:var(--grad); display:grid; place-items:center;
+          color:#fff; font-size:30px; font-weight:700; margin:0 auto 20px; }
+  h1 { font-size:clamp(1.8rem,5vw,2.6rem); margin:0 0 12px; letter-spacing:.02em; }
+  .tagline { color:var(--muted); font-size:1.05rem; margin:0 auto 28px; max-width:560px; }
+  .cta { display:inline-flex; align-items:center; gap:10px; padding:14px 28px; border-radius:999px; font-size:1.05rem;
+         font-weight:600; color:#fff; background:var(--grad); text-decoration:none; border:0; }
+  .cta[aria-disabled="true"] { background:var(--off); pointer-events:none; }
+  .status { margin-top:14px; font-size:.9rem; color:var(--muted); display:flex; gap:8px; justify-content:center; align-items:center; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--off); }
+  .dot.on { background:var(--ok); box-shadow:0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .links { margin-top:18px; font-size:.9rem; }
+  .links a { color:var(--muted); }
+  section { padding:40px 0; }
+  h2 { font-size:1.35rem; margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px 22px; }
+  .demo { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .label { font-size:.8rem; font-weight:700; color:var(--accent); letter-spacing:.05em; margin-bottom:6px; }
+  .demo p { margin:0; font-size:.95rem; }
+  .demo .en p { color:var(--muted); font-style:italic; }
+  .demo .ja .block + .block { margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; counter-reset:step; }
+  .steps .card::before { counter-increment:step; content:counter(step); display:grid; place-items:center; width:30px; height:30px;
+                         border-radius:50%; background:var(--grad); color:#fff; font-weight:700; margin-bottom:10px; }
+  .steps h3 { margin:0 0 4px; font-size:1rem; }
+  .steps p { margin:0; color:var(--muted); font-size:.9rem; }
+  .features { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  .features h3 { margin:0 0 4px; font-size:1rem; }
+  .features p { margin:0; color:var(--muted); font-size:.9rem; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  td { padding:10px 4px; border-bottom:1px solid var(--border); vertical-align:top; }
+  td:first-child { color:var(--muted); width:34%; }
+  tr:last-child td { border-bottom:0; }
+  footer { padding:40px 0 60px; text-align:center; color:var(--muted); font-size:.85rem; }
+  @media (max-width:680px) {
+    .demo, .steps, .features { grid-template-columns:1fr; }
+    header { padding-top:48px; }
+  }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <div class="logo" aria-hidden="true">訳</div>
+  <h1>リール翻訳</h1>
+  <p class="tagline">Instagram の英語リールの URL を貼るだけで、話している内容を日本語の要約と全文訳で読めるようにする Web アプリです。</p>
+  <a id="open" class="cta" aria-disabled="true" href="#" target="_blank" rel="noopener">アプリを開く</a>
+  <div class="status"><span id="dot" class="dot"></span><span id="statusText">稼働状況を確認しています…</span></div>
+  <div class="links"><a href="https://github.com/kusuhirotoappmk/translate-app" target="_blank" rel="noopener">GitHub でソースコードを見る</a></div>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2>実行例</h2>
+    <div class="demo">
+      <div class="card en">
+        <div class="label">動画の音声（英語・自動で文字起こし）</div>
+        <p>“Okay so here's the thing nobody tells you about waking up early. It's not about willpower. You gotta fix your night routine first. No phone after ten, dim the lights, and honestly just get yourself into bed. Do that for one week and I promise you'll be up at six without even trying. Game changer.”</p>
+      </div>
+      <div class="card ja">
+        <div class="block">
+          <div class="label">要約</div>
+          <p>朝起きるためのコツは、意志力ではなく夜の習慣から始めることだ。10時以降はスマホを離し、照明を暗くして寝る準備を整えよう。1週間続けると、自然と6時起きるようになる。これは朝の習慣を変えるための決定的なヒントだ。</p>
+        </div>
+        <div class="block">
+          <div class="label">日本語訳</div>
+          <p>まあ、みんなが教えてくれない朝起きるコツがある。それは意志力じゃない。まず夜の習慣を整えることだ。10時以降はスマホを触らない、照明を暗くする。そして、ただ自分をベッドに寝かせるだけ。それが1週間続けば、きっと6時起きるようになる。努力しなくても、自然に起きられるようになる。これが本当に効果的だ。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>しくみ</h2>
+    <div class="steps">
+      <div class="card"><h3>音声を取得</h3><p>貼られた URL からリールの音声だけを取り出します（yt-dlp）。</p></div>
+      <div class="card"><h3>英語を文字起こし</h3><p>音声認識モデル Whisper で、話している英語をテキストにします。</p></div>
+      <div class="card"><h3>日本語に翻訳・要約</h3><p>ローカルで動く AI（Qwen3）が自然な日本語訳と要約を作ります。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>特長</h2>
+    <div class="features">
+      <div class="card"><h3>APIキー不要・無料</h3><p>有料の AI サービスを使わず、文字起こしも翻訳もすべて自前のマシンで処理します。</p></div>
+      <div class="card"><h3>Apple Silicon で高速</h3><p>Apple の機械学習フレームワーク MLX を使い、Mac の GPU で翻訳を数秒で生成します。</p></div>
+      <div class="card"><h3>誤認識に強い翻訳</h3><p>音声認識の聞き間違いを文脈から補い、スラングも意味が伝わる日本語にします。</p></div>
+      <div class="card"><h3>公開を想定した設計</h3><p>同時処理の制限・回数制限・動画の長さ制限で、マシンの負荷と不正利用を抑えています。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>技術スタック</h2>
+    <div class="card">
+      <table>
+        <tr><td>バックエンド</td><td>Python / FastAPI</td></tr>
+        <tr><td>動画の取得</td><td>yt-dlp</td></tr>
+        <tr><td>文字起こし</td><td>faster-whisper（Whisper small）</td></tr>
+        <tr><td>翻訳・要約</td><td>MLX + Qwen3-4B-Instruct（4bit 量子化）</td></tr>
+        <tr><td>フロントエンド</td><td>HTML / CSS / JavaScript（フレームワークなし）</td></tr>
+        <tr><td>公開</td><td>Cloudflare Tunnel（アプリ）・GitHub Pages（このページ）</td></tr>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  アプリは制作者の Mac 上で動いているため、Mac が起動しているときだけ利用できます。
+</footer>
+
+<script>
+(async () => {
+  const open = document.getElementById("open");
+  const dot = document.getElementById("dot");
+  const text = document.getElementById("statusText");
+  const offline = () => { text.textContent = "現在停止中です（制作者の Mac が起動しているときに利用できます）"; };
+  try {
+    const live = await fetch(`live.json?t=${Date.now()}`, { cache: "no-store" }).then((r) => r.json());
+    if (!live.url) return offline();
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 6000);
+    const health = await fetch(`${live.url}/api/health`, { signal: ctrl.signal }).then((r) => r.json());
+    if (!health.ok) return offline();
+    open.href = live.url;
+    open.removeAttribute("aria-disabled");
+    dot.classList.add("on");
+    text.textContent = health.busy ? "稼働中（いまは他の方が利用中です）" : "稼働中 — すぐに使えます";
+  } catch {
+    offline();
+  }
+})();
+</script>
+</body>
+</html>
