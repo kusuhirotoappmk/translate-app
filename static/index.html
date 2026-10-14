@@ -25,6 +25,10 @@
   .card h2 { font-size:1rem; margin:0 0 8px; color:var(--accent); }
   .card p { margin:0; white-space:pre-wrap; }
   details summary { cursor:pointer; color:var(--muted); }
+  .note { color:var(--muted); font-size:.9rem; margin:0 0 12px; }
+  .note a { color:var(--accent); }
+  #keyCard { margin:0 0 20px; }
+  .ok { color:#2e7d32; }
   .copy { float:right; padding:4px 10px; font-size:.8rem; background:var(--border); color:var(--text); }
   .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-2px; margin-right:6px; }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -34,6 +38,16 @@
 <main>
   <h1>リール翻訳</h1>
   <p class="lead">Instagram のリール URL を貼ると、英語の内容を日本語のテキストにします。</p>
+
+  <div class="card" id="keyCard" hidden>
+    <h2>APIキー設定（最初の1回だけ）</h2>
+    <p class="note">翻訳に使う Claude の APIキーを貼り付けてください。<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a> の「API Keys」で作成できます（sk-ant- で始まる文字列）。このPCの中だけに保存されます。</p>
+    <form id="keyForm">
+      <input id="key" type="password" required placeholder="sk-ant-..." autocomplete="off">
+      <button id="keyBtn" type="submit">保存</button>
+    </form>
+    <div id="keyStatus" class="status" hidden></div>
+  </div>
 
   <form id="form">
     <input id="url" type="url" required placeholder="https://www.instagram.com/reel/..." autocomplete="off">
@@ -51,6 +65,35 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
+async function readJson(res) {
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { detail: `サーバーでエラーが発生しました（${res.status}）: ${text.slice(0, 200)}` }; }
+}
+
+fetch("/api/key").then((r) => r.json()).then((d) => { $("keyCard").hidden = d.configured; });
+
+$("keyForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("keyBtn").disabled = true;
+  $("keyStatus").hidden = false;
+  $("keyStatus").className = "status";
+  $("keyStatus").innerHTML = '<span class="spinner"></span>キーを確認しています…';
+  try {
+    const res = await fetch("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: $("key").value }) });
+    const data = await readJson(res);
+    if (!res.ok) throw new Error(data.detail || "保存できませんでした。");
+    $("key").value = "";
+    $("keyStatus").className = "status ok";
+    $("keyStatus").textContent = "保存しました。リールの URL を貼って翻訳できます。";
+    setTimeout(() => { $("keyCard").hidden = true; }, 1500);
+  } catch (err) {
+    $("keyStatus").className = "status error";
+    $("keyStatus").textContent = err.message;
+  } finally {
+    $("keyBtn").disabled = false;
+  }
+});
+
 $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("btn").disabled = true;
@@ -64,10 +107,11 @@ $("form").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: $("url").value }),
     });
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { detail: `サーバーでエラーが発生しました（${res.status}）: ${text.slice(0, 200)}` }; }
-    if (!res.ok) throw new Error(data.detail || "エラーが発生しました。");
+    const data = await readJson(res);
+    if (!res.ok) {
+      if (/APIキー/.test(data.detail || "")) $("keyCard").hidden = false;
+      throw new Error(data.detail || "エラーが発生しました。");
+    }
     $("summary").textContent = data.summary_ja;
     $("translation").textContent = data.translation_ja || "（発話が検出されませんでした）";
     $("caption").textContent = data.caption_ja;

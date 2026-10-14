@@ -16,7 +16,6 @@ Python 3.10 以上が必要です。
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # .env に ANTHROPIC_API_KEY を記入
 ```
 
 ## 起動
@@ -25,7 +24,7 @@ cp .env.example .env   # .env に ANTHROPIC_API_KEY を記入
 .venv/bin/uvicorn app:app --port 8000
 ```
 
-ブラウザで http://localhost:8000 を開き、リールの URL を貼って「翻訳する」を押します。
+ブラウザで http://localhost:8000 を開きます。初回は画面の「APIキー設定」に Claude の APIキー（sk-ant-...）を貼って保存してください（`.env` に保存されます）。その後、リールの URL を貼って「翻訳する」を押します。
 初回は文字起こしモデルのダウンロードがあるため少し時間がかかります。
 
 ## 補足

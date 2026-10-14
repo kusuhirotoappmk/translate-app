@@ -45,16 +45,54 @@ def get_whisper() -> WhisperModel:
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
 
 
-def get_claude() -> anthropic.Anthropic:
+ENV_PATH = BASE_DIR / ".env"
+
+
+def key_configured() -> bool:
     # サーバー起動後に .env を作成・編集しても反映されるよう毎回読み直す
-    load_dotenv(BASE_DIR / ".env", override=True)
-    if not os.getenv("ANTHROPIC_API_KEY", "").startswith("sk-ant-") or "xxxx" in os.getenv("ANTHROPIC_API_KEY", ""):
-        raise HTTPException(
-            500,
-            "Claude の APIキーが設定されていません。translate-app フォルダに .env ファイルを作り、"
-            "ANTHROPIC_API_KEY=sk-ant-... を書き込んでください（.env.example を参考に）。",
-        )
+    load_dotenv(ENV_PATH, override=True)
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    return key.startswith("sk-ant-") and "xxxx" not in key
+
+
+def get_claude() -> anthropic.Anthropic:
+    if not key_configured():
+        raise HTTPException(400, "Claude の APIキーが設定されていません。画面上の「APIキー設定」から登録してください。")
     return anthropic.Anthropic()
+
+
+def save_key_to_env(key: str) -> None:
+    lines = ENV_PATH.read_text().splitlines() if ENV_PATH.exists() else []
+    lines = [l for l in lines if not l.startswith("ANTHROPIC_API_KEY=")]
+    lines.insert(0, f"ANTHROPIC_API_KEY={key}")
+    ENV_PATH.write_text("\n".join(lines) + "\n")
+    ENV_PATH.chmod(0o600)  # 自分以外は読めないようにする
+    os.environ["ANTHROPIC_API_KEY"] = key
+
+
+class KeyRequest(BaseModel):
+    key: str
+
+
+@app.get("/api/key")
+def key_status():
+    return {"configured": key_configured()}
+
+
+@app.post("/api/key")
+def set_key(req: KeyRequest):
+    key = req.key.strip()
+    if not key.startswith("sk-ant-"):
+        raise HTTPException(400, "APIキーは「sk-ant-」で始まる文字列です。コピーし直してください。")
+    # 保存前に本当に使えるキーか確認する
+    try:
+        anthropic.Anthropic(api_key=key).models.list(limit=1)
+    except anthropic.AuthenticationError:
+        raise HTTPException(400, "この APIキーは無効です。Anthropic Console でキーを確認してください。")
+    except anthropic.APIConnectionError:
+        raise HTTPException(502, "Anthropic に接続できませんでした。ネット接続を確認してください。")
+    save_key_to_env(key)
+    return {"configured": True}
 
 
 def download_audio(url: str, workdir: str) -> tuple[Path, dict]:
