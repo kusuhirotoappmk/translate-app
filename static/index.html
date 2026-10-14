@@ -64,7 +64,9 @@ $("form").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: $("url").value }),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { detail: `サーバーでエラーが発生しました（${res.status}）: ${text.slice(0, 200)}` }; }
     if (!res.ok) throw new Error(data.detail || "エラーが発生しました。");
     $("summary").textContent = data.summary_ja;
     $("translation").textContent = data.translation_ja || "（発話が検出されませんでした）";

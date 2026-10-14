@@ -10,15 +10,14 @@ from pathlib import Path
 import anthropic
 import yt_dlp
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from faster_whisper import WhisperModel
 from pydantic import BaseModel
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).parent
+load_dotenv(BASE_DIR / ".env")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
 # 例: "chrome" / "safari"。ログインが必要なリールを取得するときに使う
@@ -28,6 +27,12 @@ INSTAGRAM_URL = re.compile(r"^https?://(www\.)?instagram\.com/(reel|reels|p|tv)/
 
 app = FastAPI(title="Reel Translator")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    # 想定外のエラーも画面で読める JSON で返す
+    return JSONResponse(status_code=500, content={"detail": f"予期しないエラーが発生しました: {exc}"})
 
 
 class TranslateRequest(BaseModel):
@@ -40,8 +45,15 @@ def get_whisper() -> WhisperModel:
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
 
 
-@lru_cache(maxsize=1)
 def get_claude() -> anthropic.Anthropic:
+    # サーバー起動後に .env を作成・編集しても反映されるよう毎回読み直す
+    load_dotenv(BASE_DIR / ".env", override=True)
+    if not os.getenv("ANTHROPIC_API_KEY", "").startswith("sk-ant-") or "xxxx" in os.getenv("ANTHROPIC_API_KEY", ""):
+        raise HTTPException(
+            500,
+            "Claude の APIキーが設定されていません。translate-app フォルダに .env ファイルを作り、"
+            "ANTHROPIC_API_KEY=sk-ant-... を書き込んでください（.env.example を参考に）。",
+        )
     return anthropic.Anthropic()
 
 
@@ -84,13 +96,13 @@ SYSTEM_PROMPT = (
 )
 
 
-def translate(transcript: str, caption: str) -> dict:
+def translate(client: anthropic.Anthropic, transcript: str, caption: str) -> dict:
     user_content = (
         f"<transcript>\n{transcript or '(発話なし)'}\n</transcript>\n\n"
         f"<caption>\n{caption or '(なし)'}\n</caption>\n\n"
         "上記の Instagram リールの文字起こしと投稿キャプションを日本語に翻訳し、要約も作成してください。"
     )
-    response = get_claude().beta.messages.create(
+    response = client.beta.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=16000,
         system=SYSTEM_PROMPT,
@@ -118,6 +130,8 @@ def translate_reel(req: TranslateRequest):
     url = req.url.strip()
     if not INSTAGRAM_URL.match(url):
         raise HTTPException(400, "Instagram のリール URL を入力してください。")
+    # 時間のかかるダウンロード・文字起こしの前に APIキーを確認する
+    client = get_claude()
 
     with tempfile.TemporaryDirectory() as workdir:
         try:
@@ -133,7 +147,7 @@ def translate_reel(req: TranslateRequest):
 
     caption = info.get("description") or ""
     try:
-        result = translate(transcript, caption)
+        result = translate(client, transcript, caption)
     except anthropic.AuthenticationError:
         raise HTTPException(500, "Claude API キーが無効です。.env の ANTHROPIC_API_KEY を確認してください。")
     except anthropic.RateLimitError:
